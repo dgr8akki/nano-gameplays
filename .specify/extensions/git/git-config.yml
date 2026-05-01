@@ -5,7 +5,7 @@
 branch_numbering: sequential
 
 # Commit message used by `git commit` during repository initialization
-init_commit_message: "[Spec Kit] Initial commit"
+init_commit_message: "[Nano Gameplays] Initial commit"
 
 # Auto-commit before/after core commands.
 # Set "default" to enable for all commands, then override per-command.
@@ -14,49 +14,49 @@ auto_commit:
   default: true
   before_clarify:
     enabled: true
-    message: "[Spec Kit] Save progress before clarification"
+    message: "[Nano Gameplays] Save progress before clarification"
   before_plan:
     enabled: true
-    message: "[Spec Kit] Save progress before planning"
+    message: "[Nano Gameplays] Save progress before planning"
   before_tasks:
     enabled: true
-    message: "[Spec Kit] Save progress before task generation"
+    message: "[Nano Gameplays] Save progress before task generation"
   before_implement:
     enabled: true
-    message: "[Spec Kit] Save progress before implementation"
+    message: "[Nano Gameplays] Save progress before implementation"
   before_checklist:
     enabled: true
-    message: "[Spec Kit] Save progress before checklist"
+    message: "[Nano Gameplays] Save progress before checklist"
   before_analyze:
     enabled: true
-    message: "[Spec Kit] Save progress before analysis"
+    message: "[Nano Gameplays] Save progress before analysis"
   before_taskstoissues:
     enabled: true
-    message: "[Spec Kit] Save progress before issue sync"
+    message: "[Nano Gameplays] Save progress before issue sync"
   after_constitution:
     enabled: true
-    message: "[Spec Kit] Add project constitution"
+    message: "[Nano Gameplays] Add project constitution"
   after_specify:
     enabled: true
-    message: "[Spec Kit] Add specification"
+    message: "[Nano Gameplays] Add specification"
   after_clarify:
     enabled: true
-    message: "[Spec Kit] Clarify specification"
+    message: "[Nano Gameplays] Clarify specification"
   after_plan:
     enabled: true
-    message: "[Spec Kit] Add implementation plan"
+    message: "[Nano Gameplays] Add implementation plan"
   after_tasks:
     enabled: true
-    message: "[Spec Kit] Add tasks"
+    message: "[Nano Gameplays] Add tasks"
   after_implement:
     enabled: true
-    message: "[Spec Kit] Implementation progress"
+    message: "[Nano Gameplays] Implementation progress"
   after_checklist:
     enabled: true
-    message: "[Spec Kit] Add checklist"
+    message: "[Nano Gameplays] Add checklist"
   after_analyze:
     enabled: true
-    message: "[Spec Kit] Add analysis report"
+    message: "[Nano Gameplays] Add analysis report"
   after_taskstoissues:
     enabled: true
-    message: "[Spec Kit] Sync tasks to issues"
+    message: "[Nano Gameplays] Sync tasks to issues"
