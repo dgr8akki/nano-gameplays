@@ -5,6 +5,15 @@
 **Status**: Draft  
 **Input**: User description: "initial ui screen - It will be split screen into 4 part header, footer, middle left, middle right. In Header, we will show the name of the app, in footer, we will show the keys and their meaning. In middle right screen, it will show a cool ps5 ascii animation till the user is selecting a gamevideo. In middle left, it should be  able to pick the video with the help of keys, it will show directory structure as well. once the file is selected, it will show a \"Analyzing...\" text with a cool animation on the middle right screen. internally it will take a screenshot or may be 2 and then send it to claude code and get the game info pre populated like game name, scene etc on the right middle screen. User can also edit it before proceeding it to the next screen."
 
+## Clarifications
+
+### Session 2026-05-02
+
+- Q: Can the user re-trigger analysis on the same selected video without going back to the picker? → A: No automated re-run; if the result is poor, the user edits the fields manually.
+- Q: How long do captured frames persist? → A: Transient — kept in memory only; never written to disk; discarded when the Claude call returns, fails, or the selection changes.
+- Q: What metadata fields does this screen produce? → A: Exactly three: game title, scene/level/mode, and a confidence indicator. No additional fields are produced or displayed on this screen.
+- Q: How is the confidence indicator represented to the user? → A: Categorical — low / medium / high, with a corresponding visual cue (icon or color).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Pick a gameplay video from disk (Priority: P1)
@@ -70,8 +79,9 @@ advance.
    **Then** the right pane shows an "Analyzing…" indicator with visible
    progress until results arrive.
 2. **Given** analysis succeeds, **When** results are returned, **Then** the
-   right pane displays at minimum: detected game title, detected scene /
-   level / mode, and a confidence indicator, all in editable fields.
+   right pane displays exactly three fields — detected game title,
+   detected scene/level/mode, and a confidence indicator — with the game
+   title and scene/level/mode editable.
 3. **Given** detected fields are shown, **When** the user edits a field
    using the keyboard, **Then** the edit is reflected immediately and
    persists when they proceed.
@@ -185,8 +195,13 @@ matches the keys that actually work in the current focus context.
   or two representative frames from that video for analysis.
 - **FR-013**: The application MUST submit the captured frame(s) to Claude
   to obtain pre-filled metadata about the gameplay shown.
-- **FR-014**: The pre-filled metadata MUST include at minimum: detected
-  game title and detected in-game scene/level/mode.
+- **FR-014**: The pre-filled metadata MUST consist of exactly three
+  fields: detected game title, detected in-game scene/level/mode, and a
+  confidence indicator. The confidence indicator MUST be one of three
+  categorical values — **low**, **medium**, or **high** — and MUST be
+  presented with a visual cue (icon or color) so its level is readable
+  at a glance. No additional metadata fields are produced or displayed
+  on this screen.
 - **FR-015**: The application MUST display the returned metadata in the
   right pane in editable fields.
 - **FR-016**: The user MUST be able to edit each metadata field using the
@@ -202,6 +217,12 @@ matches the keys that actually work in the current focus context.
 - **FR-020**: If the user selects a different video while an analysis is
   in flight, the application MUST abandon the in-flight analysis and
   reset the right pane state for the new selection.
+- **FR-020a**: Once analysis has produced a result for the currently
+  selected video (whether populated or empty due to failure), the
+  application MUST NOT offer the user a way to re-run analysis on that
+  same selection. Refining the metadata is done exclusively by editing
+  the fields; the only way to obtain a fresh analysis is to reselect a
+  video in the picker.
 
 **Feedback & Resilience**
 
@@ -209,6 +230,10 @@ matches the keys that actually work in the current focus context.
   Claude call) MUST surface progress and never appear frozen.
 - **FR-022**: All user-facing failure messages MUST be actionable: they
   state what failed and what the user can do next.
+- **FR-023**: Captured frames MUST NOT be written to disk by this screen.
+  They exist only in memory for the duration of the Claude call and MUST
+  be discarded when the call returns, fails, the user cancels, or the
+  user selects a different video.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -216,12 +241,17 @@ matches the keys that actually work in the current focus context.
   PlayStation gameplay. Identified by its filesystem path. The unit of work
   selected on this screen and passed to later screens.
 - **Captured Frame**: One or two still images extracted from the gameplay
-  video, used solely as input to game-identification analysis.
-- **Game Metadata**: A small set of fields describing the gameplay shown,
-  initially populated by analysis and editable by the user. At minimum:
-  detected game title, detected scene/level/mode, and a confidence
-  indicator. Carried forward to the next screen alongside the gameplay
-  video selection.
+  video, used solely as input to game-identification analysis. Held in
+  memory only; never persisted to disk; discarded when the analysis call
+  resolves or the selection changes.
+- **Game Metadata**: A fixed set of three fields describing the gameplay
+  shown — detected game title, detected scene/level/mode, and a
+  confidence indicator. Game title and scene/level/mode are populated by
+  analysis and editable by the user. The confidence indicator is one of
+  three categorical values (low, medium, high), reflects the analysis
+  result, is presented with a visual cue, and is not user-editable.
+  Carried forward to the next screen alongside the gameplay video
+  selection.
 
 ## Success Criteria *(mandatory)*
 
@@ -265,5 +295,5 @@ matches the keys that actually work in the current focus context.
   handled at the application level and are not part of this screen's UX.
 - This screen produces a "selected video + metadata" handoff to a later
   screen, but the design of that next screen is out of scope here.
-- Captured frames are used only as analysis input and are not retained as
-  user-visible artifacts on this screen.
+- Captured frames are used only as analysis input. They are kept in
+  memory and never written to disk on this screen (see FR-023).
