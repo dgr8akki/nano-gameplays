@@ -1,0 +1,29 @@
+{
+    "schema_version": "1",
+    "video": {
+        "path": "/tmp/test_fixture.mp4",
+        "size_bytes": 20605,
+        "extension": "mp4"
+    },
+    "metadata": {
+        "game_title": "",
+        "scene_or_level_or_mode": "",
+        "confidence": "low"
+    },
+    "analysis": {
+        "prompt_version": "identify-game.v1",
+        "model_id": "claude-sonnet-4-6",
+        "frame_offsets_pct": [
+            10,
+            60
+        ],
+        "frame_sha256": [
+            "621bede086d249ed9608e49e441bb7f9ccb443b070e81b6cae5072fbd7752008",
+            "17cbb8a4ba6dc89510e26b321c343beb3ce12ab1ec6ef3cf2c7c1ff658acd5fa"
+        ],
+        "request_started_at": "2026-05-01T23:57:56Z",
+        "request_finished_at": "2026-05-01T23:57:56Z",
+        "raw_response": "",
+        "error": "POST \"https://api.anthropic.com/v1/messages\": 401 Unauthorized (Request-ID: req_011CackmpKDxECWDz4LGtPiV) {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"},\"request_id\":\"req_011CackmpKDxECWDz4LGtPiV\"}"
+    }
+}
