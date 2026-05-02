@@ -1,0 +1,29 @@
+{
+    "schema_version": "1",
+    "video": {
+        "path": "/tmp/t02.mp4",
+        "size_bytes": 17312,
+        "extension": "mp4"
+    },
+    "metadata": {
+        "game_title": "",
+        "scene_or_level_or_mode": "test pattern / color bars",
+        "confidence": "low"
+    },
+    "analysis": {
+        "prompt_version": "identify-game.v1",
+        "model_id": "claude-opus-4-7[1m]",
+        "frame_offsets_pct": [
+            10,
+            60
+        ],
+        "frame_sha256": [
+            "b5ae977e8727e5803839e7b4766ce907883a6192c3a5dac3f0e99c0011c9f970",
+            "922c24df59193ecf0a2ad09322057486e15bf6dfbb73b50e7c2dd4cbe105a5b8"
+        ],
+        "request_started_at": "2026-05-02T01:49:08Z",
+        "request_finished_at": "2026-05-02T01:49:20Z",
+        "raw_response": "{\"game_title\":\"\",\"scene_or_level_or_mode\":\"test pattern / color bars\",\"confidence\":\"low\"}",
+        "error": ""
+    }
+}

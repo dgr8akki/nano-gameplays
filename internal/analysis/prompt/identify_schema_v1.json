@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "game_title": { "type": "string" },
+    "scene_or_level_or_mode": { "type": "string" },
+    "confidence": { "type": "string", "enum": ["low", "medium", "high"] }
+  },
+  "required": ["game_title", "scene_or_level_or_mode", "confidence"]
+}

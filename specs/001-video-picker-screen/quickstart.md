@@ -1,5 +1,11 @@
 # Quickstart
 
+> **Superseded for build/run.** This file describes the original
+> SDK-based flow from feature 001. The current build path lives at
+> [`specs/002-claude-cli-backend/quickstart.md`](../002-claude-cli-backend/quickstart.md);
+> follow that one. The picker behaviour and payload shape described
+> below are still load-bearing.
+
 A working setup for someone who just cloned this repo and wants to run
 the video picker screen end-to-end.
 

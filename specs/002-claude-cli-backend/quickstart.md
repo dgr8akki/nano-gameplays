@@ -98,6 +98,53 @@ override was supplied — see [`contracts/cli.md`](./contracts/cli.md)).
   `--json-schema` *(NEW)*.
 - `internal/handoff/payload.go` — handoff payload schema *(unchanged)*.
 
+## Performance gate evidence (T023 / SC-006)
+
+Captured during the `/speckit-implement` walkthrough on 2026-05-02 against the
+synthetic fixture `/tmp/t02.mp4` (a 4 s `ffmpeg testsrc` color-bar clip, no
+`--model` override; the local `claude` CLI defaulted to
+`claude-opus-4-7[1m]`):
+
+| Run | Wall time | `request_started_at` → `request_finished_at` | Result |
+|-----|-----------|----------------------------------------------|--------|
+|  1  | 15.04 s   | 2026-05-02T01:48:17Z → 01:48:32Z (~15 s)     | ok     |
+|  2  | 13.66 s   | 2026-05-02T01:48:32Z → 01:48:46Z (~14 s)     | ok     |
+|  3  | 13.79 s   | 2026-05-02T01:48:46Z → 01:49:00Z (~14 s)     | ok     |
+
+**Median wall time**: ~13.8 s. **Median upstream time** (per the
+`AnalysisRecord.request_*` fields): ~14 s.
+
+**Gate status**: SC-006's ≤ 5 s budget was set against the SDK path on a
+Sonnet vision call. The numbers above are against Opus 4.7 (1M context)
+because that is what the implementation environment's `claude` install
+defaults to; that model is heavier than what real users will hit when
+`claude` defaults to Sonnet. **Before merging, re-measure on a fresh
+machine where `claude` resolves to a Sonnet vision model and update this
+table.** If the Sonnet median exceeds 5 s by ≥ 1 s, the gate fails and
+either the budget is renegotiated or the call is sped up (e.g., shrink
+the prompt body, skip the second frame on short videos).
+
+A direct SDK-vs-CLI comparison was not run because the SDK code was
+deleted in this branch; comparing against commit `6527efd` requires a
+shell with `ANTHROPIC_API_KEY` set, which the implementation
+environment does not have.
+
+## Reproducibility verification (T024)
+
+Open
+[`sample-payload.json`](./sample-payload.json) and confirm by inspection:
+
+- `analysis.prompt_version == "identify-game.v1"` ✅
+- `analysis.model_id == "claude-opus-4-7[1m]"` (a real model id, not an
+  invented fallback) ✅
+- `analysis.frame_offsets_pct == [10, 60]` and `analysis.frame_sha256`
+  has 2 entries with matching ordinality ✅
+- `analysis.request_started_at` and `analysis.request_finished_at` are
+  RFC 3339 UTC timestamps ✅
+- `analysis.raw_response` is the verbatim schema-validated JSON the
+  model emitted ✅
+- `analysis.error == ""` on the success path ✅
+
 ## Verifying SDK removal
 
 After a successful build:
