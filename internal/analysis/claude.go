@@ -2,20 +2,17 @@ package analysis
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go"
-
+	"github.com/dgr8akki/nano-gameplays/internal/analysis/claudecli"
 	"github.com/dgr8akki/nano-gameplays/internal/analysis/prompt"
 	"github.com/dgr8akki/nano-gameplays/internal/handoff"
 )
-
-const defaultMaxTokens int64 = 512
 
 type identifyResponse struct {
 	GameTitle          string `json:"game_title"`
@@ -23,114 +20,188 @@ type identifyResponse struct {
 	Confidence         string `json:"confidence"`
 }
 
-// Identify sends the captured frames to Claude with the versioned prompt and
-// returns the parsed metadata plus a populated AnalysisRecord. The record is
-// always returned (even on error) so callers can persist the failure trace per
-// FR-018.
+// Identify orchestrates one identification call: write captured frames
+// to a private per-call tempdir, invoke the local `claude` CLI with the
+// versioned prompt + schema, decode the structured response, and
+// produce the (GameMetadata, AnalysisRecord) pair the application
+// emits in its handoff payload. Cleanup of the tempdir is mandatory and
+// runs on every exit path (success, error, context cancellation) via a
+// deferred RemoveAll.
+//
+// See specs/002-claude-cli-backend/{plan.md,research.md,contracts/}.
 func Identify(ctx context.Context, frames []CapturedFrame, modelID string) (handoff.GameMetadata, handoff.AnalysisRecord, error) {
 	rec := handoff.AnalysisRecord{
-		PromptVersion:    prompt.IdentifyGameVersion,
-		ModelID:          modelID,
-		FrameOffsetsPct:  framesOffsets(frames),
-		FrameSHA256:      framesHashes(frames),
-		RequestStartedAt: nowRFC3339(),
+		PromptVersion:   prompt.IdentifyGameVersion,
+		ModelID:         modelID,
+		FrameOffsetsPct: framesOffsets(frames),
+		FrameSHA256:     framesHashes(frames),
 	}
+
 	if len(frames) == 0 {
-		rec.RequestFinishedAt = nowRFC3339()
+		rec.RequestStartedAt = nowRFC3339()
+		rec.RequestFinishedAt = rec.RequestStartedAt
 		rec.Error = "no frames extracted"
 		return handoff.GameMetadata{Confidence: "low"}, rec, errors.New(rec.Error)
 	}
 
-	client := anthropic.NewClient()
-
-	contentBlocks := make([]anthropic.ContentBlockParamUnion, 0, len(frames)+1)
-	for _, f := range frames {
-		encoded := base64.StdEncoding.EncodeToString(f.Bytes)
-		contentBlocks = append(contentBlocks, anthropic.NewImageBlockBase64("image/png", encoded))
+	cliFrames := make([]claudecli.Frame, len(frames))
+	for i, f := range frames {
+		cliFrames[i] = claudecli.Frame{Bytes: f.Bytes, OffsetPct: f.OffsetPct}
 	}
-	contentBlocks = append(contentBlocks, anthropic.NewTextBlock("Identify the game shown in these frames and respond per the schema."))
-
-	params := anthropic.MessageNewParams{
-		MaxTokens: defaultMaxTokens,
-		Model:     anthropic.Model(modelID),
-		System: []anthropic.TextBlockParam{
-			{Text: prompt.IdentifyGameV1()},
-		},
-		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(contentBlocks...),
-		},
-	}
-
-	resp, err := client.Messages.New(ctx, params)
-	rec.RequestFinishedAt = nowRFC3339()
+	tempDir, framePaths, err := claudecli.WriteFrames(cliFrames)
 	if err != nil {
-		rec.Error = err.Error()
+		rec.RequestStartedAt = nowRFC3339()
+		rec.RequestFinishedAt = rec.RequestStartedAt
+		rec.Error = fmt.Sprintf("tempdir / frame write: %v", err)
 		return handoff.GameMetadata{Confidence: "low"}, rec, err
 	}
+	defer os.RemoveAll(tempDir)
 
-	rawText := extractTextResponse(resp)
-	rec.RawResponse = rawText
-	parsed, parseErr := parseIdentifyResponse(rawText)
-	if parseErr != nil {
-		rec.Error = parseErr.Error()
-		return handoff.GameMetadata{Confidence: "low"}, rec, parseErr
+	opts := claudecli.InvokeOpts{
+		SystemPrompt: prompt.IdentifyGameV1(),
+		JSONSchema:   prompt.IdentifySchemaV1(),
+		ModelID:      modelID,
+		TempDir:      tempDir,
+		UserMessage:  buildUserMessage(framePaths),
 	}
 
-	conf, coerced := coerceConfidence(parsed.Confidence)
-	if coerced {
-		rec.Error = fmt.Sprintf("coerced confidence value %q to low", parsed.Confidence)
+	rec.RequestStartedAt = nowRFC3339()
+	runResult, runErr := claudecli.Run(ctx, opts)
+	rec.RequestFinishedAt = nowRFC3339()
+	rec.RawResponse = pickRawResponse(runResult.Envelope)
+
+	if runErr != nil {
+		rec.Error = fmt.Sprintf("claude invoke: %v", runErr)
+		return handoff.GameMetadata{Confidence: "low"}, rec, runErr
 	}
+	if runResult.ExitErr != nil {
+		// Context cancellations are surfaced by exec.CommandContext as a
+		// non-zero exit; let the orchestrator distinguish them via ctx.Err().
+		if ctx.Err() != nil {
+			rec.Error = fmt.Sprintf("claude cancelled: %v", ctx.Err())
+			return handoff.GameMetadata{Confidence: "low"}, rec, ctx.Err()
+		}
+		rec.Error = formatCallError("claude exit", runResult)
+		return handoff.GameMetadata{Confidence: "low"}, rec, runResult.ExitErr
+	}
+	if runResult.Envelope.IsError {
+		rec.Error = formatCallError("envelope-error", runResult)
+		return handoff.GameMetadata{Confidence: "low"}, rec, errors.New(rec.Error)
+	}
+	parsed, decodeErr := decodeIdentifyResponse(runResult.Envelope)
+	if decodeErr != nil {
+		rec.Error = fmt.Sprintf("decode model JSON: %v", decodeErr)
+		return handoff.GameMetadata{Confidence: "low"}, rec, decodeErr
+	}
+
+	rec.ModelID = resolveModelID(modelID, runResult.Envelope.Model, &rec)
 
 	return handoff.GameMetadata{
 		GameTitle:          strings.TrimSpace(parsed.GameTitle),
 		SceneOrLevelOrMode: strings.TrimSpace(parsed.SceneOrLevelOrMode),
-		Confidence:         conf,
+		Confidence:         parsed.Confidence, // schema-enforced enum, no coercion needed
 	}, rec, nil
 }
 
-func parseIdentifyResponse(raw string) (identifyResponse, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return identifyResponse{}, errors.New("empty model response")
+// pickRawResponse returns the verbatim model output for the AnalysisRecord:
+// the structured_output JSON when present (the canonical source of truth for
+// schema-constrained calls), otherwise the textual result.
+func pickRawResponse(env claudecli.ResultEnvelope) string {
+	if len(env.StructuredOutput) > 0 {
+		return string(env.StructuredOutput)
 	}
-	// Defensive: tolerate a single ```json fence even though the prompt forbids it.
-	trimmed = strings.TrimPrefix(trimmed, "```json")
-	trimmed = strings.TrimPrefix(trimmed, "```")
-	trimmed = strings.TrimSuffix(trimmed, "```")
-	trimmed = strings.TrimSpace(trimmed)
+	return env.Result
+}
 
+// decodeIdentifyResponse prefers the schema-validated structured_output
+// from the envelope when present; falls back to JSON-decoding the textual
+// result for compatibility with envelopes that omit structured_output.
+func decodeIdentifyResponse(env claudecli.ResultEnvelope) (identifyResponse, error) {
 	var out identifyResponse
-	if err := json.Unmarshal([]byte(trimmed), &out); err != nil {
-		return identifyResponse{}, fmt.Errorf("decode model JSON: %w", err)
+	if len(env.StructuredOutput) > 0 {
+		if err := json.Unmarshal(env.StructuredOutput, &out); err != nil {
+			return out, err
+		}
+		return out, nil
+	}
+	if env.Result == "" {
+		return out, errors.New("empty model response")
+	}
+	if err := json.Unmarshal([]byte(env.Result), &out); err != nil {
+		return out, err
 	}
 	return out, nil
 }
 
-// coerceConfidence enforces the low/medium/high enum (FR-014, contract). Returns
-// the canonical value plus whether coercion happened.
-func coerceConfidence(value string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "low":
-		return "low", false
-	case "medium":
-		return "medium", false
-	case "high":
-		return "high", false
+// resolveModelID applies the precedence from
+// specs/002-claude-cli-backend/research.md §R-5: explicit override wins,
+// then envelope-reported model, then empty + an `analysis.error` note.
+func resolveModelID(override, envelope string, rec *handoff.AnalysisRecord) string {
+	if override != "" {
+		return override
 	}
-	return "low", true
+	if envelope != "" {
+		return envelope
+	}
+	rec.Error = appendErr(rec.Error, "model id unavailable")
+	return ""
 }
 
-func extractTextResponse(msg *anthropic.Message) string {
-	if msg == nil {
-		return ""
+// formatCallError produces a single-line, descriptive error string drawn
+// from (in priority order) the envelope's own error, the captured stderr,
+// and the stage label.
+func formatCallError(stage string, r claudecli.RunResult) string {
+	if r.Envelope.Error != "" {
+		return fmt.Sprintf("%s: %s", stage, r.Envelope.Error)
 	}
-	var b strings.Builder
-	for _, block := range msg.Content {
-		if block.Type == "text" {
-			b.WriteString(block.Text)
+	if s := claudeclireadStderr(r.Stderr); s != "" {
+		return fmt.Sprintf("%s: %s", stage, s)
+	}
+	if r.ExitErr != nil {
+		return fmt.Sprintf("%s: %v", stage, r.ExitErr)
+	}
+	return stage
+}
+
+func appendErr(existing, more string) string {
+	if existing == "" {
+		return more
+	}
+	return existing + "; " + more
+}
+
+// claudeclireadStderr is a small indirection so this package can reuse the
+// claudecli stderr-trimming helper without exporting it broadly.
+func claudeclireadStderr(b []byte) string {
+	s := strings.TrimSpace(string(b))
+	if len(s) > 1024 {
+		s = s[:1024] + "…"
+	}
+	return strings.ReplaceAll(s, "\n", " ")
+}
+
+func buildUserMessage(framePaths []string) string {
+	switch len(framePaths) {
+	case 0:
+		return "Identify the game shown. Respond per the schema."
+	case 1:
+		return fmt.Sprintf("Identify the game shown in the frame at %s. Respond per the schema.", framePaths[0])
+	default:
+		var b strings.Builder
+		b.WriteString("Identify the game shown in the frames at ")
+		for i, p := range framePaths {
+			if i > 0 {
+				if i == len(framePaths)-1 {
+					b.WriteString(" and ")
+				} else {
+					b.WriteString(", ")
+				}
+			}
+			b.WriteString(p)
 		}
+		b.WriteString(". Respond per the schema.")
+		return b.String()
 	}
-	return b.String()
 }
 
 func framesOffsets(frames []CapturedFrame) []int {
